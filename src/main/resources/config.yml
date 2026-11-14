@@ -1,5 +1,6 @@
 allow-others: false
 open-to-all-after-minutes: 0
+death-message: false
 
 messages:
   death-chest: "&bYour items are stored in a soul chest at &f{x}, {y}, {z} &7({world})"

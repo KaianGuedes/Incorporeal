@@ -59,7 +59,7 @@ public class DeathChestEntity {
                 "y", String.valueOf(safe.getBlockY()),
                 "z", String.valueOf(baseLoc.getBlockZ()),
                 "world", safe.getWorld().getName());
-        if (message != null) owner.sendMessage(message);
+        if (message != null && plugin.getConfig().getBoolean("death-message", false)) owner.sendMessage(message);
         return true;
     }
 
