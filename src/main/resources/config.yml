@@ -1,0 +1,8 @@
+open-access:
+  others-can-open: false
+  open-to-all-after-minutes: 0
+
+messages:
+  death-chest: "&bYour items are stored in a soul chest at &f{x}, {y}, {z} &7({world})"
+  not-owner: "&cThis chest belongs to someone else."
+  unreadable-items: "&cThis chest could not be read. Its items were kept."

@@ -1,77 +1,87 @@
 package dev.war.incorporeal.deathchest;
 
-import com.destroystokyo.paper.event.entity.EntityAddToWorldEvent;
 import dev.war.incorporeal.Incorporeal;
+import dev.war.incorporeal.util.Compat;
 import dev.war.incorporeal.util.SerializationUtil;
 import org.bukkit.Bukkit;
-import org.bukkit.Color;
 import org.bukkit.Location;
-import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
-import org.bukkit.Sound;
-import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Interaction;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.UUID;
+import java.util.logging.Level;
 
 public class DeathChestListener implements Listener {
     private final Incorporeal plugin;
-    private final NamespacedKey itemsKey;
-    private final NamespacedKey displayKey;
+    private final ChestKeys keys;
 
     public DeathChestListener(Incorporeal plugin) {
         this.plugin = plugin;
-        this.itemsKey = new NamespacedKey(plugin, "stored_items");
-        this.displayKey = new NamespacedKey(plugin, "linked_display");
+        this.keys = plugin.keys();
     }
 
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         if (event.getDrops().isEmpty()) return;
 
-        DeathChestEntity.create(
+        boolean stored = DeathChestEntity.create(
                 plugin,
                 event.getEntity().getLocation(),
                 event.getEntity(),
                 new ArrayList<>(event.getDrops())
         );
 
-        event.getDrops().clear();
+        if (stored) event.getDrops().clear();
     }
 
     @EventHandler
-    public void onEntityAdd(EntityAddToWorldEvent event) {
-        if (!(event.getEntity() instanceof Interaction interaction)) return;
-        if (!interaction.getPersistentDataContainer().has(itemsKey, PersistentDataType.BYTE_ARRAY)) return;
-
-        String displayUuidStr = interaction.getPersistentDataContainer().get(displayKey, PersistentDataType.STRING);
-        if (displayUuidStr != null) {
-            Bukkit.getScheduler().runTaskLater(plugin, () -> {
-                try {
-                    Entity displayEntity = Bukkit.getEntity(UUID.fromString(displayUuidStr));
-                    if (displayEntity instanceof BlockDisplay display) {
-                        DeathChestEntity.startAnimation(plugin, display, interaction);
-                    }
-                } catch (IllegalArgumentException ignored) {}
-            }, 1L);
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof Interaction interaction) {
+                Bukkit.getScheduler().runTaskLater(plugin, () -> plugin.animator().start(interaction), 1L);
+            }
         }
     }
 
     @EventHandler
     public void onInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (!(event.getRightClicked() instanceof Interaction interaction)) return;
-        if (!interaction.getPersistentDataContainer().has(itemsKey, PersistentDataType.BYTE_ARRAY)) return;
+        PersistentDataContainer pdc = interaction.getPersistentDataContainer();
+        if (!pdc.has(keys.items, PersistentDataType.BYTE_ARRAY)) return;
+        if (pdc.has(keys.opened, PersistentDataType.BYTE)) return;
 
-        byte[] serialized = interaction.getPersistentDataContainer().get(itemsKey, PersistentDataType.BYTE_ARRAY);
-        ItemStack[] items = SerializationUtil.deserializeItems(serialized);
+        Player player = event.getPlayer();
+        if (!canOpen(player, pdc)) {
+            send(player, plugin.message("not-owner"));
+            return;
+        }
+
+        ItemStack[] items;
+        try {
+            items = SerializationUtil.deserializeItems(
+                    pdc.get(keys.items, PersistentDataType.BYTE_ARRAY),
+                    pdc.get(keys.format, PersistentDataType.INTEGER));
+        } catch (IOException e) {
+            plugin.getLogger().log(Level.WARNING, "Could not read a death chest, its items were kept", e);
+            send(player, plugin.message("unreadable-items"));
+            return;
+        }
+
+        pdc.set(keys.opened, PersistentDataType.BYTE, (byte) 1);
 
         Location dropLoc = interaction.getLocation().add(0, 0.5, 0); // Drop items slightly elevated
 
@@ -83,18 +93,18 @@ public class DeathChestListener implements Listener {
 
         // --- VFX and SFX upon opening ---
         // Cool incorporeal sound combination
-        dropLoc.getWorld().playSound(dropLoc, Sound.ENTITY_EVOKER_CAST_SPELL, 1.0f, 1.2f);
-        dropLoc.getWorld().playSound(dropLoc, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1.0f, 0.8f);
+        Compat.playSound(dropLoc, ChestStyle.SOUND_OPEN_CAST, 1.0f, 1.2f);
+        Compat.playSound(dropLoc, ChestStyle.SOUND_OPEN_CHIME, 1.0f, 0.8f);
 
         // Cyan skull explosion
-        dropLoc.getWorld().spawnParticle(Particle.SOUL, dropLoc, 15, 0.3, 0.3, 0.3, 0.1);
+        Compat.spawnParticle(dropLoc, Compat.SOUL, 15, 0.3, 0.1, null);
 
         // Cyan dust shockwave
-        Particle.DustOptions cyanDust = new Particle.DustOptions(Color.fromRGB(0, 255, 255), 1.5f);
-        dropLoc.getWorld().spawnParticle(Particle.DUST, dropLoc, 30, 0.4, 0.4, 0.4, 1.0, cyanDust);
+        Particle.DustOptions cyanDust = new Particle.DustOptions(ChestStyle.CYAN, ChestStyle.OPEN_DUST_SIZE);
+        Compat.spawnParticle(dropLoc, Compat.DUST, 30, 0.4, 1.0, cyanDust);
         // --------------------------------
 
-        String displayUuidStr = interaction.getPersistentDataContainer().get(displayKey, PersistentDataType.STRING);
+        String displayUuidStr = pdc.get(keys.display, PersistentDataType.STRING);
         if (displayUuidStr != null) {
             try {
                 Entity display = Bukkit.getEntity(UUID.fromString(displayUuidStr));
@@ -103,5 +113,19 @@ public class DeathChestListener implements Listener {
         }
 
         interaction.remove();
+    }
+
+    private boolean canOpen(Player player, PersistentDataContainer pdc) {
+        String owner = pdc.get(keys.owner, PersistentDataType.STRING);
+        if (owner == null || owner.equals(player.getUniqueId().toString())) return true;
+        if (plugin.getConfig().getBoolean("open-access.others-can-open", false)) return true;
+
+        long minutes = plugin.getConfig().getLong("open-access.open-to-all-after-minutes", 0);
+        Long created = pdc.get(keys.created, PersistentDataType.LONG);
+        return minutes > 0 && created != null && System.currentTimeMillis() - created >= minutes * 60_000L;
+    }
+
+    private void send(Player player, String message) {
+        if (message != null) player.sendMessage(message);
     }
 }
