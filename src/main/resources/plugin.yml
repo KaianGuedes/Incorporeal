@@ -1,0 +1,4 @@
+name: Incorporeal
+version: '0.1'
+main: dev.war.incorporeal.Incorporeal
+api-version: '1.21'
