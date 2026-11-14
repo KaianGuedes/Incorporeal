@@ -118,9 +118,9 @@ public class DeathChestListener implements Listener {
     private boolean canOpen(Player player, PersistentDataContainer pdc) {
         String owner = pdc.get(keys.owner, PersistentDataType.STRING);
         if (owner == null || owner.equals(player.getUniqueId().toString())) return true;
-        if (plugin.getConfig().getBoolean("open-access.others-can-open", false)) return true;
+        if (plugin.getConfig().getBoolean("allow-others", false)) return true;
 
-        long minutes = plugin.getConfig().getLong("open-access.open-to-all-after-minutes", 0);
+        long minutes = plugin.getConfig().getLong("open-to-all-after-minutes", 0);
         Long created = pdc.get(keys.created, PersistentDataType.LONG);
         return minutes > 0 && created != null && System.currentTimeMillis() - created >= minutes * 60_000L;
     }
