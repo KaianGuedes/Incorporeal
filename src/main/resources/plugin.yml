@@ -1,4 +1,4 @@
 name: Incorporeal
-version: '0.1'
+version: '${version}'
 main: dev.war.incorporeal.Incorporeal
-api-version: '1.21'
+api-version: '1.20'
